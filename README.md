@@ -1,2 +1,2 @@
-# Seasonal-Flux-Boxplots
-Code for dataframe cleaning, performing ANOVA analysis, and plotting data for seasonal and spation comparisons of watershed nutrient flux in stormwater
+# Seasonal Flux Boxplots
+Code for dataframe cleaning, performing ANOVA analysis, and plotting data for seasonal and spatiol comparisons of watershed nutrient flux in stormwater
