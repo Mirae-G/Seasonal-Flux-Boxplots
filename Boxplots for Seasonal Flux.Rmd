@@ -1,0 +1,115 @@
+---
+title: "Boxplots All Sites Seasonal Flux"
+author: "Mirae Guenther"
+date: "2026-05-16"
+output: html_document
+---
+
+```{r  Libraries and Setup}
+library(tidyverse)
+library(multcompView)
+library(rlang)
+
+```
+
+```{r Cleaning primary dataframe for analysis}
+anova_data <- new_analysis_dataset %>%
+  mutate(site_id = as.factor(site_id)) %>%
+  mutate(year = as.factor(year)) %>%
+  mutate(month = as.factor(month)) %>%
+  mutate(season = as.factor(season)) %>% #spring = April-May, summer = June-Aug, autumn = Sept-Nov
+  mutate(Decid_street_perc = as.factor(Decid_street_perc)) %>%
+  mutate(Merge_road_perc_WS = as.factor(Merge_road_perc_WS)) %>%
+  mutate(grow_season = case_when( #TP: 167-286, ORP: 280-293, NO3: 114-265
+      between(julien_day, 1, 90) ~ "winter",
+      between(julien_day, 91, 145) ~ "spring", #Apr 1 thru May 25 #Phenology resources list dates between April 16 - May 24 for leaves/needles (not sure what percentage of canopy that equates to, but it is a different date than "initial shoot/leaf growth")
+      between(julien_day, 146, 286) ~ "leaf_on", #May26 thru Oct 14
+      between(julien_day, 287, 366) ~ "autumn" 
+  )) %>% 
+  mutate(grow_season = as.factor(grow_season)) %>% 
+  mutate(log_tp_flux = log(tp_flux_mg_m2)) %>%
+  mutate(log_orp_flux = log(orp_flux_mg_m2)) %>%
+  mutate(log_no3_flux = log(no3_flux_mg_m2)) %>%
+  mutate(log_tkn_flux = log(tkn_flux_mg_m2))
+
+```
+
+
+```{r Combined ANOVAs to plot Seasonal significance}
+# This code chunk creates boxplots for visualizing the results from all pipesheds of interest together. The results are separated by pipeshed and by season, and include wiskers, 
+
+# Define color palette for sites
+sites <- unique(anova_data$site_id)
+site_colors <- c("EK" = "purple", "SAP" = "orangered", "TBW" = "blue", "TBE" = "skyblue", "PC" = "gold")
+
+# Loop over each concentration variable
+for (concentration_var in conc_variables) {
+  # Create an empty list to store data for all sites
+  all_site_tbl <- list()
+  anova_data_all_sites <- list()
+  
+  # Loop over each site
+  for (site in sites) {
+    # Filter data for the current site and concentration variable
+    anova_data_site_conc <- anova_data %>%
+      filter(site_id == site) %>%
+      dplyr::select(site_id, grow_season, one_of(concentration_var)) %>%
+      na.omit()  # Remove rows with missing values
+    
+    # Perform ANOVA
+    anova_result <- aov(reformulate("grow_season", response = concentration_var), data = anova_data_site_conc)
+    
+    # Perform Tukey HSD test
+    tukey_result <- TukeyHSD(anova_result)
+    
+    # Generate data for plotting
+    tbl <- anova_data_site_conc %>%
+      group_by(grow_season) %>%
+      summarise(mean = mean(!!sym(concentration_var)), quant = quantile(!!sym(concentration_var), probs = 0.75)) %>%
+      arrange(desc(mean))
+    cld <- as.data.frame.list(multcompLetters4(anova_result, tukey_result)$grow_season)
+    tbl$cld <- cld$Letters
+    
+    # Store the data for the current site
+    all_site_tbl[[site]] <- tbl
+    anova_data_all_sites[[site]] <- anova_data_site_conc
+  }
+  
+  # Combine data for all sites
+  all_site_tbl <- bind_rows(all_site_tbl, .id = "site_id")
+  anova_data_all_sites <- bind_rows(anova_data_all_sites, .id = "site_id")
+  
+  # Order the sites based on site_id
+  all_site_tbl$site_id <- factor(all_site_tbl$site_id, levels = c("EK", "SAP", "TBW", "TBE", "PC"))
+  anova_data_all_sites$site_id <- factor(anova_data_all_sites$site_id, levels = c("EK", "SAP", "TBW", "TBE", "PC"))
+  
+  # Set y-axis limits based on the variable being plotted
+  y_limits <- switch(concentration_var,
+                     log_tp_flux = c(-5, 3.5),
+                     log_orp_flux = c(-7, 3.5),
+                     log_no3_flux = c(-6, 3.5),
+                     log_tkn_flux = c(-3, 4.5),
+                     default = NULL)
+  y_axis_label <- y_axis_labels[concentration_var]
+  
+  # Plot seasonal concentrations
+  season_order <- c("spring", "leaf_on", "autumn")
+  plot <- ggplot(anova_data_all_sites, aes(x = grow_season, y = !!sym(concentration_var), fill = site_id)) +
+    geom_boxplot(outlier.shape = NA, coef = 1.5, color = "black") +  # Include whiskers with coef = 1.5
+    labs(x = "Season", y = y_axis_label) +
+    scale_y_continuous(limits = y_limits) +
+    scale_x_discrete(limits = season_order) +  # Specify the order of x-axis categories
+    theme_bw() +
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+    geom_text(data = all_site_tbl, aes(x = grow_season, y = quant, label = cld),# group = site_id), 
+              size = 5, position = position_dodge(width = 0.8), vjust = -0.5, hjust = 0) +  # Adjust vjust for vertical position of letters #This can be finetuned in Adobe later
+    scale_fill_manual(values = site_colors)  # Assign unique colors to each site
+  
+  print(plot)
+  # Save the plot
+    # ggsave(paste0("Plots/ANOVAs/", "all_sites_", concentration_var, "_season.pdf"), plot, device = "pdf", width = 10, height = 6)
+}
+
+```
+
+
